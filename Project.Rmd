@@ -1,0 +1,167 @@
+---
+title: 'Peer-graded Assignment: Regression Models Course Project'
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.path='Figs/')
+```
+
+## Overview
+
+The goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.
+
+### Setting up
+
+1. Download all the files and install all the relevant packages.
+
+```{r}
+set.seed(123)
+urltrain<-'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+urltest<-'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+training<-read.csv(urltrain,na.strings=c('','NA'))
+testing<-read.csv(urltest,na.strings=c('','NA'))
+library(caret)
+library(dplyr)
+library(rattle)
+```
+
+2. Exploratory data analysis
+
+```{r}
+dim(training);dim(testing)
+qplot(classe,data=training)
+
+newtraining<-training[,colSums(is.na(training))==0] ## remove columns/variables that have NA
+newtesting<-testing[,colSums(is.na(testing))==0] ## remove columns/variables that have NA
+dim(newtraining);dim(newtesting)
+```
+
+```{r}
+length(intersect(colnames(newtraining),colnames(newtesting))) ## find out how many common variables are there
+```
+
+```{r}
+setdiff(colnames(newtraining),intersect(colnames(newtraining),colnames(newtesting))) ## find out which is the variable that does not overlap
+```
+3. Cross Validation
+
+This is done by using the Validation set approach.
+
+```{r}
+intrain<-createDataPartition(y=newtraining$classe,p=0.7,list=FALSE)
+training1<-newtraining[intrain,]
+validation<-newtraining[-intrain,]
+```
+
+### Methods
+
+1. Linear Discriminant Analysis (Model-based prediction)
+
+The LDA method is known to be computationally fast but lacks accuracy.
+
+```{r}
+modellda<-train(classe~.,method='lda',data=training1)
+ldapredict<-predict(modellda,validation)
+confusionMatrix(ldapredict,validation$classe)
+```
+
+A suprising observation here is that the accuracy is unusually high. Hence, it is worth to further investigate what are the key variables involved in the outcome prediction.
+
+```{r}
+varimpdata<-varImp(modellda) 
+head(varimpdata$importance,5)
+```
+
+It seems that variable X is able to perfectly predict the outcome, hence it could be proxy variable of the outcome. The variable should be removed from the training, validation and testing sets. 
+
+```{r}
+training1<-select(training1,-X)
+validation<-select(validation,-X)
+newtesting<-select(newtesting,-X)
+```
+
+Now, we run the LDA method again after removing variable X.
+
+```{r}
+modellda2<-train(classe~.,method='lda',data=training1)
+ldapredict2<-predict(modellda2,validation)
+confusionMatrix(ldapredict2,validation$classe)
+```
+
+```{r}
+ldaoutofsample<-1-confusionMatrix(ldapredict2,validation$classe)$overall[1]
+ldaoutofsample[[1]]
+```
+
+As we can see, the accuracy of the model has decreased to an expected level. 
+
+2. Classification Trees
+
+The classification trees method is known to be easy to intepret and better for non-linear relationships.
+
+```{r}
+modeltree<-train(classe~.,method='rpart',data=training1)
+treepredict<-predict(modeltree,validation)
+confusionMatrix(treepredict,validation$classe)
+```
+
+```{r}
+troutofsample<-1-confusionMatrix(treepredict,validation$classe)$overall[1]
+troutofsample[[1]]
+```
+
+As we can see, the accuracy of the model here is lower than that of the LDA model, while the estimated out of sample error is higher.
+
+```{r}
+fancyRpartPlot(modeltree$finalModel)
+```
+
+(Explanation)
+
+3. Random Forests
+
+The random forests model is known to be accurate but difficult to intepret and computationally slow.
+
+```{r}
+modelrf<-train(classe~.,method='rf',data=training1)
+rfpredict<-predict(modelrf,validation)
+confusionMatrix(rfpredict,validation$classe)
+```
+
+```{r}
+rfoutofsample<-1-confusionMatrix(rfpredict,validation$classe)$overall[1]
+rfoutofsample[[1]]
+```
+
+As we can see, the accuracy of the model here is higher than the LDA and classification trees methods, and the estimated out of sample error is also lower.
+
+4. Boosting with Trees
+
+Boosting with trees helps to create a stronger predictor by weighing weak predictors and adding them up. Hence, it is known to be accurate but is computationally slow.
+
+```{r}
+modelbt<-train(classe~.,method='gbm',data=training1,verbose=FALSE)
+btpredict<-predict(modelbt,validation)
+confusionMatrix(btpredict,validation$classe)
+```
+
+```{r}
+btoutofsample<-1-confusionMatrix(btpredict,validation$classe)$overall[1]
+btoutofsample[[1]]
+```
+
+As we can see, the accuracy of the model here is high but lower than that of the random forests model, and the estimated out of sample error is low but higher than that of the random forests model.
+
+### Conclusion
+
+The random forests model (rf) is best in terms of accuracy, hence I decide to use that model to predict on newtesting.
+
+```{r}
+finalpredict<-predict(modelrf,newtesting)
+finalpredict
+```
